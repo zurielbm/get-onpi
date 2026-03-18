@@ -11,12 +11,19 @@ export type AssetType =
 export type ValidationSeverity = 'error' | 'warning' | 'info';
 
 export type InstallScope = 'user';
+export type PackageVariant = 'standard' | 'emoji';
 
 export type PackageAsset = {
   id: string;
   type: AssetType;
   source: string;
   target: string;
+  variant: PackageVariant;
+};
+
+export type InstallNamespace = {
+  brand: string;
+  product: string;
 };
 
 export type OnpiManifest = {
@@ -40,6 +47,7 @@ export type OnpiManifest = {
   registryPackageId?: string;
   channel?: string;
   publishedVersionId?: string;
+  installNamespace?: InstallNamespace;
   platforms: SupportedPlatform[];
   assets: PackageAsset[];
 };
@@ -57,12 +65,14 @@ export type ClassifiedFile = {
   fileName: string;
   detectedType: AssetType | null;
   targetPath: string;
+  variant: PackageVariant;
   warnings: string[];
 };
 
 export type PackageBuilderInput = {
   manifest: Omit<OnpiManifest, 'assets'>;
   assets: ClassifiedFile[];
+  iconSourcePath?: string;
   outputPath: string;
 };
 
@@ -75,6 +85,7 @@ export type PackageReadResult = {
 export type InstallPreviewItem = {
   assetId: string;
   type: AssetType;
+  variant: PackageVariant;
   logicalTarget: string;
   absoluteTarget: string;
   exists: boolean;
@@ -83,6 +94,7 @@ export type InstallPreviewItem = {
 
 export type InstallPreview = {
   manifest: OnpiManifest;
+  variant: PackageVariant;
   items: InstallPreviewItem[];
   warnings: string[];
 };
@@ -101,9 +113,11 @@ export type InstalledPackageRecord = {
   author: string;
   installedAt: string;
   installScope: InstallScope;
+  variant: PackageVariant;
   manifestHash: string;
   sourcePackagePath: string;
   installedFiles: InstalledFileRecord[];
+  ownedDirectories?: string[];
   remotePackageId?: string;
   remoteVersionId?: string;
   updateChannel?: string;
@@ -117,6 +131,8 @@ export type InstalledRegistry = {
 export type AppSettings = {
   defaultInstallScope: InstallScope;
   defaultExportDirectory: string | null;
+  emojiDetectionContains: string[];
+  emojiDetectionSuffixes: string[];
 };
 
 export type AppDirectories = {
@@ -137,11 +153,13 @@ export interface PackageUpdateService {
 export type RendererApi = {
   getAppVersion: () => Promise<string>;
   pickSourceFiles: () => Promise<string[]>;
+  pickIconFile: () => Promise<string | null>;
+  readImageDataUrl: (filePath: string) => Promise<string>;
   pickPackageFile: () => Promise<string | null>;
   exportPackage: (input: PackageBuilderInput) => Promise<{ outputPath: string; issues: ValidationIssue[] }>;
   parsePackage: (archivePath: string) => Promise<PackageReadResult>;
-  previewInstall: (archivePath: string, scope: InstallScope) => Promise<InstallPreview>;
-  installPackage: (archivePath: string, scope: InstallScope) => Promise<InstalledPackageRecord>;
+  previewInstall: (archivePath: string, scope: InstallScope, variant: PackageVariant) => Promise<InstallPreview>;
+  installPackage: (archivePath: string, scope: InstallScope, variant: PackageVariant) => Promise<InstalledPackageRecord>;
   getInstalledPackages: () => Promise<InstalledPackageRecord[]>;
   uninstallPackage: (installId: string) => Promise<void>;
   getSettings: () => Promise<AppSettings>;

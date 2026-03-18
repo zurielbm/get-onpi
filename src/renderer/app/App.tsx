@@ -3,13 +3,15 @@ import { APP_DISPLAY_VERSION, APP_NAME, APP_PACKAGE_VERSION, FORMAT_VERSION } fr
 import type {
   AppSettings,
   ClassifiedFile,
+  InstallNamespace,
   InstallPreview,
   InstalledPackageRecord,
   OnpiManifest,
   PackageBuilderInput,
+  PackageVariant,
   ValidationIssue
 } from '@shared/types';
-import { classifyFiles } from '@core/validation/classifyAsset';
+import { classifyFiles, defaultTargetFor, fileNameFromPath } from '@core/validation/classifyAsset';
 import { DownloadIcon, GridIcon, HomeIcon, PackageIcon, SettingsIcon } from '@renderer/components/Icons';
 import { HomePage } from '@renderer/pages/HomePage';
 import { MakePackagePage } from '@renderer/pages/MakePackagePage';
@@ -19,6 +21,79 @@ import { SettingsPage } from '@renderer/pages/SettingsPage';
 
 type NavKey = 'home' | 'make' | 'install' | 'installed' | 'settings';
 type ManifestDraft = Omit<OnpiManifest, 'assets'>;
+
+function derivePackageId(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+function deriveFolderName(value: string, fallback: string): string {
+  const normalized = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+
+  return normalized || fallback;
+}
+
+function buildInstallNamespace(author: string, name: string, current?: InstallNamespace): InstallNamespace {
+  return {
+    brand: current?.brand || deriveFolderName(author, 'creator'),
+    product: current?.product || deriveFolderName(name, 'package')
+  };
+}
+
+function parseValidationIssues(message: string): ValidationIssue[] {
+  try {
+    const parsed = JSON.parse(message) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== 'object') {
+        return [];
+      }
+
+      const candidate = item as Partial<ValidationIssue>;
+      if (
+        typeof candidate.message !== 'string' ||
+        (candidate.severity !== 'error' && candidate.severity !== 'warning' && candidate.severity !== 'info')
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          severity: candidate.severity,
+          message: candidate.message,
+          field: typeof candidate.field === 'string' ? candidate.field : undefined
+        }
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function formatInstallError(error: unknown): { message: string; issues: ValidationIssue[] } {
+  const message = error instanceof Error ? error.message : String(error);
+  const issues = parseValidationIssues(message);
+  if (issues.length > 0) {
+    return {
+      message: issues.length === 1 ? 'Package metadata failed validation.' : 'Package metadata has multiple validation issues.',
+      issues
+    };
+  }
+
+  return { message, issues: [] };
+}
 
 const initialManifest = (appVersion: string): ManifestDraft => ({
   formatVersion: FORMAT_VERSION,
@@ -31,6 +106,7 @@ const initialManifest = (appVersion: string): ManifestDraft => ({
   createdWithVersion: appVersion,
   minAppVersion: appVersion,
   minResolveVersion: '18.0',
+  installNamespace: buildInstallNamespace('', ''),
   platforms: ['macos', 'windows'],
   category: '',
   tags: []
@@ -41,15 +117,19 @@ export function App() {
   const [activeNav, setActiveNav] = useState<NavKey>('home');
   const [appVersion, setAppVersion] = useState(APP_DISPLAY_VERSION);
   const [manifestDraft, setManifestDraft] = useState<ManifestDraft>(initialManifest(APP_PACKAGE_VERSION));
+  const [iconSourcePath, setIconSourcePath] = useState<string | undefined>(undefined);
+  const [iconPreviewUrl, setIconPreviewUrl] = useState<string | undefined>(undefined);
   const [classifiedFiles, setClassifiedFiles] = useState<ClassifiedFile[]>([]);
   const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
   const [selectedArchivePath, setSelectedArchivePath] = useState<string | null>(null);
   const [parsedManifest, setParsedManifest] = useState<OnpiManifest | null>(null);
   const [installPreview, setInstallPreview] = useState<InstallPreview | null>(null);
+  const [selectedInstallVariant, setSelectedInstallVariant] = useState<PackageVariant>('standard');
   const [installedPackages, setInstalledPackages] = useState<InstalledPackageRecord[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [status, setStatus] = useState<string>('Local package tools.');
   const [installError, setInstallError] = useState<string | null>(null);
+  const [installIssues, setInstallIssues] = useState<ValidationIssue[]>([]);
   const [isInstallLoading, setIsInstallLoading] = useState(false);
 
   useEffect(() => {
@@ -67,6 +147,8 @@ export function App() {
         ]);
         setAppVersion(version === APP_PACKAGE_VERSION ? APP_DISPLAY_VERSION : version);
         setManifestDraft(initialManifest(version));
+        setIconSourcePath(undefined);
+        setIconPreviewUrl(undefined);
         setInstalledPackages(installed);
         setSettings(currentSettings);
       } catch (error) {
@@ -125,15 +207,105 @@ export function App() {
     [classifiedFiles.length, installedPackages.length]
   );
 
+  function classifyWithSettings(filePaths: string[]): ClassifiedFile[] {
+    return classifyFiles(filePaths, settings ? {
+      emojiDetectionContains: settings.emojiDetectionContains,
+      emojiDetectionSuffixes: settings.emojiDetectionSuffixes
+    } : undefined);
+  }
+
+  function inferInstallVariant(manifest: OnpiManifest): PackageVariant {
+    const variants = new Set(manifest.assets.map((asset) => asset.variant));
+    return variants.has('standard') ? 'standard' : 'emoji';
+  }
+
   async function handlePickFiles(): Promise<void> {
     const filePaths = await api.pickSourceFiles();
-    const next = classifyFiles(filePaths);
+    const next = classifyWithSettings(filePaths);
     setClassifiedFiles(next);
     setStatus(`${next.length} files loaded.`);
   }
 
+  async function handlePickIcon(): Promise<void> {
+    const filePath = await api.pickIconFile();
+    if (!filePath) {
+      return;
+    }
+
+    const extensionMatch = filePath.match(/\.[^.\\/]+$/);
+    const extension = extensionMatch?.[0]?.toLowerCase() ?? '';
+    let previewUrl: string | undefined;
+    if (typeof api.readImageDataUrl === 'function') {
+      try {
+        previewUrl = await api.readImageDataUrl(filePath);
+      } catch {
+        previewUrl = undefined;
+      }
+    }
+    setIconSourcePath(filePath);
+    setIconPreviewUrl(previewUrl);
+    setManifestDraft((current) => ({ ...current, icon: `media/icon${extension}` }));
+    setStatus(previewUrl ? 'Icon selected.' : 'Icon selected, but preview generation failed.');
+  }
+
+  function handleClearIcon(): void {
+    setIconSourcePath(undefined);
+    setIconPreviewUrl(undefined);
+    setManifestDraft((current) => {
+      const next = { ...current };
+      delete next.icon;
+      return next;
+    });
+    setStatus('Icon removed.');
+  }
+
   function updateClassifiedFile(index: number, patch: Partial<ClassifiedFile>): void {
-    setClassifiedFiles((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
+    setClassifiedFiles((current) =>
+      current.map((item, itemIndex) => {
+        if (itemIndex !== index) {
+          return item;
+        }
+
+        const next = { ...item, ...patch };
+        if (Object.prototype.hasOwnProperty.call(patch, 'detectedType')) {
+          next.targetPath = defaultTargetFor(fileNameFromPath(next.fileName), next.detectedType);
+        }
+        return next;
+      })
+    );
+  }
+
+  function handleManifestChange(next: ManifestDraft): void {
+    const currentNamespace = manifestDraft.installNamespace ?? { brand: '', product: '' };
+    const nextNamespace = next.installNamespace ?? currentNamespace;
+
+    if (next.name !== manifestDraft.name) {
+      const previousDerivedId = derivePackageId(manifestDraft.name);
+      const nextDerivedId = derivePackageId(next.name);
+      const shouldSyncId = !manifestDraft.id || manifestDraft.id === previousDerivedId;
+      if (shouldSyncId && nextDerivedId) {
+        next = { ...next, id: nextDerivedId };
+      }
+    }
+
+    const previousBrand = deriveFolderName(manifestDraft.author, 'creator');
+    const previousProduct = deriveFolderName(manifestDraft.name, 'package');
+    const nextAuthor = next.author;
+    const nextName = next.name;
+
+    const shouldSyncBrand = !currentNamespace.brand || currentNamespace.brand === previousBrand;
+    const shouldSyncProduct = !currentNamespace.product || currentNamespace.product === previousProduct;
+
+    next = {
+      ...next,
+      installNamespace: {
+        ...nextNamespace,
+        brand: shouldSyncBrand ? deriveFolderName(nextAuthor, 'creator') : nextNamespace.brand,
+        product: shouldSyncProduct ? deriveFolderName(nextName, 'package') : nextNamespace.product
+      }
+    };
+
+    setManifestDraft(next);
   }
 
   async function handleExportPackage(): Promise<void> {
@@ -141,6 +313,7 @@ export function App() {
     const input: PackageBuilderInput = {
       manifest: manifestDraft,
       assets: classifiedFiles,
+      iconSourcePath,
       outputPath: `${settings?.defaultExportDirectory ?? '.'}/${outputName}`
     };
     const result = await api.exportPackage(input);
@@ -153,25 +326,36 @@ export function App() {
   }
 
   function handleDroppedSourceFiles(filePaths: string[]): void {
-    const next = classifyFiles(filePaths);
+    const next = classifyWithSettings(filePaths);
     setClassifiedFiles(next);
     setStatus(`${next.length} files loaded.`);
+  }
+
+  async function loadInstallPreview(filePath: string, manifest: OnpiManifest, variant: PackageVariant): Promise<void> {
+    const preview = await api.previewInstall(filePath, 'user', variant);
+    setParsedManifest(manifest);
+    setInstallPreview(preview);
+    setSelectedInstallVariant(variant);
   }
 
   async function handleDroppedArchive(filePath: string): Promise<void> {
     setIsInstallLoading(true);
     setInstallError(null);
+    setInstallIssues([]);
     try {
-      const [parsed, preview] = await Promise.all([api.parsePackage(filePath), api.previewInstall(filePath, 'user')]);
+      const parsed = await api.parsePackage(filePath);
+      const variant = inferInstallVariant(parsed.manifest);
       setSelectedArchivePath(filePath);
-      setParsedManifest(parsed.manifest);
-      setInstallPreview(preview);
+      await loadInstallPreview(filePath, parsed.manifest, variant);
+      setInstallIssues([]);
       setStatus(`Loaded ${parsed.manifest.name}.`);
     } catch (error) {
+      const formatted = formatInstallError(error);
       setSelectedArchivePath(filePath);
       setParsedManifest(null);
       setInstallPreview(null);
-      setInstallError((error as Error).message);
+      setInstallError(formatted.message);
+      setInstallIssues(formatted.issues);
       setStatus('Package load failed.');
     } finally {
       setIsInstallLoading(false);
@@ -191,8 +375,9 @@ export function App() {
     }
     setIsInstallLoading(true);
     setInstallError(null);
+    setInstallIssues([]);
     try {
-      const record = await api.installPackage(selectedArchivePath, 'user');
+      const record = await api.installPackage(selectedArchivePath, 'user', selectedInstallVariant);
       const installed = await api.getInstalledPackages();
       setInstalledPackages(installed);
       setStatus(`Installed ${record.name} ${record.version}.`);
@@ -218,14 +403,41 @@ export function App() {
     setStatus('Settings saved.');
   }
 
+  async function handleInstallVariantChange(variant: PackageVariant): Promise<void> {
+    if (!selectedArchivePath || !parsedManifest) {
+      setSelectedInstallVariant(variant);
+      return;
+    }
+
+    setIsInstallLoading(true);
+    setInstallError(null);
+    setInstallIssues([]);
+    try {
+      await loadInstallPreview(selectedArchivePath, parsedManifest, variant);
+      setStatus(`Prepared ${variant} install preview.`);
+    } catch (error) {
+      const formatted = formatInstallError(error);
+      setInstallError(formatted.message);
+      setInstallIssues(formatted.issues);
+      setInstallPreview(null);
+      setStatus('Package load failed.');
+    } finally {
+      setIsInstallLoading(false);
+    }
+  }
+
   const page = (() => {
     if (activeNav === 'make') {
       return (
         <MakePackagePage
           manifestDraft={manifestDraft}
+          iconPreviewPath={iconSourcePath}
+          iconPreviewUrl={iconPreviewUrl}
           files={classifiedFiles}
           validationIssues={validationIssues}
-          onManifestChange={setManifestDraft}
+          onManifestChange={handleManifestChange}
+          onPickIcon={handlePickIcon}
+          onClearIcon={handleClearIcon}
           onPickFiles={handlePickFiles}
           onDropFiles={handleDroppedSourceFiles}
           onFileChange={updateClassifiedFile}
@@ -240,10 +452,13 @@ export function App() {
           archivePath={selectedArchivePath}
           manifest={parsedManifest}
           preview={installPreview}
+          selectedVariant={selectedInstallVariant}
           installError={installError}
+          installIssues={installIssues}
           isLoading={isInstallLoading}
           onPickPackage={handlePickPackage}
           onDropPackage={handleDroppedArchive}
+          onVariantChange={handleInstallVariantChange}
           onInstall={handleInstallPackage}
         />
       );

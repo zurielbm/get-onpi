@@ -15,17 +15,24 @@ export async function buildArchive(input: PackageBuilderInput): Promise<{ output
   }
 
   const zip = new AdmZip();
+  const iconArchivePath = input.manifest.icon ? normalizeArchivePath(input.manifest.icon) : undefined;
   const manifest: OnpiManifest = {
     ...input.manifest,
+    icon: iconArchivePath,
     assets: input.assets.map((asset) => ({
       id: asset.assetId,
       type: asset.detectedType!,
       source: `payload/${normalizeArchivePath(asset.relativeSourcePath)}`,
-      target: normalizeArchivePath(asset.targetPath)
+      target: normalizeArchivePath(asset.targetPath),
+      variant: asset.variant
     }))
   };
 
   zip.addFile('package.json', Buffer.from(JSON.stringify(manifest, null, 2)));
+
+  if (iconArchivePath && input.iconSourcePath) {
+    zip.addLocalFile(input.iconSourcePath, path.posix.dirname(iconArchivePath), path.posix.basename(iconArchivePath));
+  }
 
   for (const asset of input.assets) {
     const archivePath = `payload/${normalizeArchivePath(asset.relativeSourcePath)}`;

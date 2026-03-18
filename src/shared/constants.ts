@@ -13,5 +13,7 @@ export const SUPPORTED_ASSET_TYPES = [
 ] as const;
 export const DEFAULT_SETTINGS = {
   defaultInstallScope: 'user',
-  defaultExportDirectory: null
+  defaultExportDirectory: null,
+  emojiDetectionContains: ['emoji'],
+  emojiDetectionSuffixes: ['-emoji', '_emoji', ' emoji']
 } as const;

@@ -1,10 +1,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { InstallScope, SupportedPlatform } from '@shared/types';
+import type { InstallNamespace, InstallScope, SupportedPlatform } from '@shared/types';
 
 export type ResolveTargetInput = {
   logicalTarget: string;
+  packageId: string;
+  packageName: string;
+  packageAuthor: string;
+  installNamespace?: InstallNamespace;
   installScope: InstallScope;
   platform: SupportedPlatform;
 };
@@ -35,14 +39,35 @@ function assertLogicalTarget(logicalTarget: string): string {
   return normalized;
 }
 
+function normalizePackageDirectoryName(packageId: string): string {
+  const normalized = packageId.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!normalized) {
+    throw new Error(`Invalid package id for install path: ${packageId}`);
+  }
+  return normalized;
+}
+
+function resolveInstallNamespace(input: ResolveTargetInput): string[] {
+  const brand = normalizePackageDirectoryName(input.installNamespace?.brand || input.packageAuthor || 'creator');
+  const product = normalizePackageDirectoryName(input.installNamespace?.product || input.packageName || input.packageId);
+  return [brand, product];
+}
+
 export function detectPlatform(): SupportedPlatform {
   return process.platform === 'win32' ? 'windows' : 'macos';
 }
 
 export function resolveTargetPath(input: ResolveTargetInput): ResolveTargetResult {
   const normalizedLogicalTarget = assertLogicalTarget(input.logicalTarget);
+  const installNamespaceSegments = resolveInstallNamespace(input);
   const root = getResolveSupportRoot(input.platform, input.installScope);
-  const absolutePath = path.join(root, ...normalizedLogicalTarget.split('/'));
+  const segments = normalizedLogicalTarget.split('/').filter(Boolean);
+  const fileName = segments.pop();
+  if (!fileName) {
+    throw new Error(`Invalid logical target: ${input.logicalTarget}`);
+  }
+
+  const absolutePath = path.join(root, ...segments, ...installNamespaceSegments, fileName);
   return {
     absolutePath,
     requiresElevation: false,

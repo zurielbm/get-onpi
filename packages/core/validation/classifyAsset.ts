@@ -1,4 +1,9 @@
-import type { AssetType, ClassifiedFile } from '@shared/types';
+import type { AssetType, ClassifiedFile, PackageVariant } from '@shared/types';
+
+export type VariantDetectionRules = {
+  emojiDetectionContains: string[];
+  emojiDetectionSuffixes: string[];
+};
 
 function normalizeSlashes(value: string): string {
   return value.replace(/\\/g, '/');
@@ -7,6 +12,10 @@ function normalizeSlashes(value: string): string {
 function fileNameOf(filePath: string): string {
   const normalized = normalizeSlashes(filePath);
   return normalized.split('/').filter(Boolean).pop() ?? filePath;
+}
+
+export function fileNameFromPath(filePath: string): string {
+  return fileNameOf(filePath);
 }
 
 function extNameOf(filePath: string): string {
@@ -39,7 +48,7 @@ function detectType(filePath: string): AssetType | null {
   return null;
 }
 
-function defaultTargetFor(filePath: string, type: AssetType | null): string {
+export function defaultTargetFor(filePath: string, type: AssetType | null): string {
   const fileName = fileNameOf(filePath);
   if (type === 'fusion-template') {
     return `Fusion/Templates/Edit/Titles/${fileName}`;
@@ -68,10 +77,28 @@ function slugifyAssetId(fileName: string, index: number): string {
   return baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `asset-${index + 1}`;
 }
 
-export function classifyFiles(inputPaths: string[]): ClassifiedFile[] {
+function detectVariant(fileName: string, rules?: VariantDetectionRules): PackageVariant {
+  const normalized = fileNameOf(fileName).toLowerCase();
+  const baseName = normalized.includes('.') ? normalized.slice(0, normalized.lastIndexOf('.')) : normalized;
+  const containsRules = rules?.emojiDetectionContains ?? [];
+  const suffixRules = rules?.emojiDetectionSuffixes ?? [];
+
+  if (containsRules.some((rule) => rule.trim() && baseName.includes(rule.trim().toLowerCase()))) {
+    return 'emoji';
+  }
+
+  if (suffixRules.some((rule) => rule.trim() && baseName.endsWith(rule.trim().toLowerCase()))) {
+    return 'emoji';
+  }
+
+  return 'standard';
+}
+
+export function classifyFiles(inputPaths: string[], rules?: VariantDetectionRules): ClassifiedFile[] {
   return inputPaths.map((absolutePath, index) => {
     const fileName = fileNameOf(absolutePath);
     const detectedType = detectType(absolutePath);
+    const variant = detectVariant(fileName, rules);
     const warnings: string[] = [];
     if (!detectedType) {
       warnings.push('Unsupported file type. Assign manually before export.');
@@ -84,6 +111,7 @@ export function classifyFiles(inputPaths: string[]): ClassifiedFile[] {
       fileName,
       detectedType,
       targetPath: defaultTargetFor(absolutePath, detectedType),
+      variant,
       warnings
     };
   });

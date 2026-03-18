@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { app, dialog, ipcMain, shell } from 'electron';
+import { app, dialog, ipcMain, nativeImage, shell } from 'electron';
 import type { AppSettings, PackageBuilderInput } from '@shared/types';
 import { buildArchive } from '@core/packaging/archiveBuilder';
 import { readArchive } from '@core/packaging/archiveReader';
@@ -24,6 +24,45 @@ export function registerOnpiIpc(): void {
       return [];
     }
     return collectFiles(result.filePaths);
+  });
+
+  ipcMain.handle('files:pick-icon', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'ico', 'icns'] }]
+    });
+    if (result.canceled) {
+      return null;
+    }
+    return result.filePaths[0] ?? null;
+  });
+
+  ipcMain.handle('files:read-image-data-url', async (_event, filePath: string) => {
+    const nativePreview = nativeImage.createFromPath(filePath);
+    if (!nativePreview.isEmpty()) {
+      return nativePreview.toDataURL();
+    }
+
+    const buffer = await fs.readFile(filePath);
+    const extension = path.extname(filePath).toLowerCase();
+    const mimeType =
+      extension === '.png'
+        ? 'image/png'
+        : extension === '.jpg' || extension === '.jpeg'
+          ? 'image/jpeg'
+          : extension === '.webp'
+            ? 'image/webp'
+            : extension === '.gif'
+              ? 'image/gif'
+              : extension === '.svg'
+                ? 'image/svg+xml'
+                : extension === '.ico'
+                  ? 'image/x-icon'
+                  : extension === '.icns'
+                    ? 'image/icns'
+                    : 'application/octet-stream';
+
+    return `data:${mimeType};base64,${buffer.toString('base64')}`;
   });
 
   ipcMain.handle('files:pick-package', async () => {
@@ -61,11 +100,11 @@ export function registerOnpiIpc(): void {
   });
 
   ipcMain.handle('package:parse', async (_event, archivePath: string) => readArchive(archivePath));
-  ipcMain.handle('package:preview-install', async (_event, archivePath: string, scope) => createInstallPreview(archivePath, scope));
+  ipcMain.handle('package:preview-install', async (_event, archivePath: string, scope, variant) => createInstallPreview(archivePath, scope, variant));
 
-  ipcMain.handle('package:install', async (_event, archivePath: string, scope) => {
+  ipcMain.handle('package:install', async (_event, archivePath: string, scope, variant) => {
     const appDirs = await ensureAppDirectories();
-    return installPackageFromArchive(archivePath, scope, appDirs);
+    return installPackageFromArchive(archivePath, scope, variant, appDirs);
   });
 
   ipcMain.handle('package:list-installed', async () => {

@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { logUninstall } from '@core/logging/logger';
 import { readInstalledRegistry, writeInstalledRegistry } from '@core/registry/installedRegistry';
 
@@ -16,6 +17,16 @@ export async function uninstallPackageById(registryFile: string, logsDir: string
       await fs.rm(file.backupPath, { force: true });
     }
     await logUninstall(logsDir, `removed ${file.targetPath}`);
+  }
+
+  const ownedDirectories = record.ownedDirectories ?? Array.from(new Set(record.installedFiles.map((file) => path.dirname(file.targetPath))));
+  for (const directory of ownedDirectories) {
+    try {
+      await fs.rmdir(directory);
+      await logUninstall(logsDir, `removed directory ${directory}`);
+    } catch {
+      // Leave non-empty or missing directories alone.
+    }
   }
 
   await writeInstalledRegistry(registryFile, {

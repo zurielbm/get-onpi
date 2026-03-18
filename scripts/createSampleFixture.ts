@@ -25,6 +25,10 @@ async function main(): Promise<void> {
       createdWithVersion: '0.1.0',
       minAppVersion: '0.1.0',
       minResolveVersion: '18.0',
+      installNamespace: {
+        brand: 'creator-name',
+        product: 'cinematic-titles'
+      },
       platforms: ['macos', 'windows'],
       category: 'Titles',
       tags: ['titles', 'cinematic']
@@ -37,6 +41,7 @@ async function main(): Promise<void> {
         fileName: 'CinematicTitle.setting',
         detectedType: 'fusion-template',
         targetPath: 'Fusion/Templates/Edit/Titles/CinematicTitle.setting',
+        variant: 'standard',
         warnings: []
       }
     ]

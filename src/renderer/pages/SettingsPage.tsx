@@ -11,10 +11,21 @@ type SettingsPageProps = {
 
 export function SettingsPage({ settings, onSave, onOpenLogs, onClearTemp }: SettingsPageProps) {
   const [draftDirectory, setDraftDirectory] = useState(settings.defaultExportDirectory ?? '');
+  const [emojiContains, setEmojiContains] = useState(settings.emojiDetectionContains.join(', '));
+  const [emojiSuffixes, setEmojiSuffixes] = useState(settings.emojiDetectionSuffixes.join(', '));
 
   useEffect(() => {
     setDraftDirectory(settings.defaultExportDirectory ?? '');
-  }, [settings.defaultExportDirectory]);
+    setEmojiContains(settings.emojiDetectionContains.join(', '));
+    setEmojiSuffixes(settings.emojiDetectionSuffixes.join(', '));
+  }, [settings.defaultExportDirectory, settings.emojiDetectionContains, settings.emojiDetectionSuffixes]);
+
+  function parseList(value: string): string[] {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
 
   return (
     <section className="stack">
@@ -35,7 +46,14 @@ export function SettingsPage({ settings, onSave, onOpenLogs, onClearTemp }: Sett
             </div>
             <button
               className="primary-action"
-              onClick={() => void onSave({ ...settings, defaultExportDirectory: draftDirectory || null })}
+              onClick={() =>
+                void onSave({
+                  ...settings,
+                  defaultExportDirectory: draftDirectory || null,
+                  emojiDetectionContains: parseList(emojiContains),
+                  emojiDetectionSuffixes: parseList(emojiSuffixes)
+                })
+              }
             >
               Save
             </button>
@@ -51,6 +69,14 @@ export function SettingsPage({ settings, onSave, onOpenLogs, onClearTemp }: Sett
               placeholder="Choose via export dialog"
               onChange={(event) => setDraftDirectory(event.target.value)}
             />
+          </label>
+          <label>
+            <span>Emoji match: contains</span>
+            <input value={emojiContains} placeholder="emoji, emj" onChange={(event) => setEmojiContains(event.target.value)} />
+          </label>
+          <label>
+            <span>Emoji match: ends with</span>
+            <input value={emojiSuffixes} placeholder="-emoji, _emoji" onChange={(event) => setEmojiSuffixes(event.target.value)} />
           </label>
         </div>
         <div className="panel">

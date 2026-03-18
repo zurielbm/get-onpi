@@ -1,13 +1,18 @@
 import type { DragEvent } from 'react';
 import type { ClassifiedFile, OnpiManifest, ValidationIssue } from '@shared/types';
+import { FolderIcon, ImageIcon, PackageIcon, TrashIcon } from '@renderer/components/Icons';
 
 type ManifestDraft = Omit<OnpiManifest, 'assets'>;
 
 type MakePackagePageProps = {
   manifestDraft: ManifestDraft;
+  iconPreviewPath?: string;
+  iconPreviewUrl?: string;
   files: ClassifiedFile[];
   validationIssues: ValidationIssue[];
   onManifestChange: (value: ManifestDraft) => void;
+  onPickIcon: () => Promise<void>;
+  onClearIcon: () => void;
   onPickFiles: () => Promise<void>;
   onDropFiles: (filePaths: string[]) => void;
   onFileChange: (index: number, patch: Partial<ClassifiedFile>) => void;
@@ -16,15 +21,20 @@ type MakePackagePageProps = {
 
 export function MakePackagePage({
   manifestDraft,
+  iconPreviewPath,
+  iconPreviewUrl,
   files,
   validationIssues,
   onManifestChange,
+  onPickIcon,
+  onClearIcon,
   onPickFiles,
   onDropFiles,
   onFileChange,
   onExport
 }: MakePackagePageProps) {
   const canExport = files.length > 0;
+  const installNamespace = manifestDraft.installNamespace ?? { brand: '', product: '' };
   const fields: Array<{ field: keyof ManifestDraft; label: string }> = [
     { field: 'name', label: 'Package name' },
     { field: 'id', label: 'Package id' },
@@ -34,11 +44,51 @@ export function MakePackagePage({
     { field: 'category', label: 'Category' },
     { field: 'minResolveVersion', label: 'Min Resolve version' }
   ];
+  const previewTitle = manifestDraft.name || 'Untitled package';
+  const previewId = manifestDraft.id || 'package.id';
+  const previewDescription = manifestDraft.description || 'Add a short description so users know what this package installs.';
+  const previewCategory = manifestDraft.category || 'Uncategorized';
+  const previewAuthor = manifestDraft.author || 'Unknown author';
+  const previewNamespace = [installNamespace.brand || 'brand', installNamespace.product || 'product'].join(' / ');
+  const previewIconLabel = iconPreviewPath?.split(/[/\\]/).pop() ?? 'No icon selected';
 
   function collectDroppedPaths(event: DragEvent<HTMLDivElement>): string[] {
     return Array.from(event.dataTransfer.files)
       .map((file) => (file as File & { path?: string }).path)
       .filter((value): value is string => Boolean(value));
+  }
+
+  function getPreviewInitial(): string {
+    return (manifestDraft.name || manifestDraft.id || 'P').trim().charAt(0).toUpperCase() || 'P';
+  }
+
+  function describeInstallRoot(file: ClassifiedFile): string {
+    if (file.detectedType === 'fusion-template') {
+      return 'Fusion Templates / Edit / Titles';
+    }
+    if (file.detectedType === 'fusion-macro') {
+      return 'Fusion Templates / Edit / Effects';
+    }
+    if (file.detectedType === 'fuse') {
+      return 'Fusion / Fuses';
+    }
+    if (file.detectedType === 'script') {
+      return 'Fusion / Scripts / Utility';
+    }
+    if (file.detectedType === 'lut' || file.detectedType === 'dctl') {
+      return 'LUT';
+    }
+    return 'Unmapped';
+  }
+
+  function updateInstallNamespace(patch: Partial<typeof installNamespace>): void {
+    onManifestChange({
+      ...manifestDraft,
+      installNamespace: {
+        ...installNamespace,
+        ...patch
+      }
+    });
   }
 
   return (
@@ -62,44 +112,120 @@ export function MakePackagePage({
           <div className="panel-header">
             <div>
               <h3>Package Info</h3>
-              <div className="panel-subtitle">Basic package details.</div>
+              <div className="panel-subtitle">Basic package details and icon.</div>
             </div>
             <span className="mini-pill">Step 1</span>
           </div>
-          <div className="form-grid">
-            {fields.map(({ field, label }) => (
-              <label key={field}>
-                <span>{label}</span>
-                <input
-                  value={(manifestDraft[field] as string | undefined) ?? ''}
-                  onChange={(event) => onManifestChange({ ...manifestDraft, [field]: event.target.value })}
-                />
+          <div className="package-info-layout">
+            <div className="form-grid">
+              {fields.map(({ field, label }) => (
+                <label key={field}>
+                  <span>{label}</span>
+                  <input
+                    value={(manifestDraft[field] as string | undefined) ?? ''}
+                    onChange={(event) => onManifestChange({ ...manifestDraft, [field]: event.target.value })}
+                  />
+                </label>
+              ))}
+              <label>
+                <span>Brand folder</span>
+                <input value={installNamespace.brand} onChange={(event) => updateInstallNamespace({ brand: event.target.value })} />
               </label>
-            ))}
+              <label>
+                <span>Product folder</span>
+                <input value={installNamespace.product} onChange={(event) => updateInstallNamespace({ product: event.target.value })} />
+              </label>
+            </div>
+            <aside className="icon-picker">
+              <div className="icon-picker-header">
+                <span>Package icon</span>
+                <span className="table-note">Optional but recommended.</span>
+              </div>
+              <div className="icon-preview">
+                {iconPreviewUrl ? (
+                  <img src={iconPreviewUrl} alt="" />
+                ) : (
+                  <div className="icon-preview-fallback">
+                    <PackageIcon size={28} />
+                    <strong>{getPreviewInitial()}</strong>
+                  </div>
+                )}
+              </div>
+              <div className="icon-picker-meta">
+                <strong>{previewIconLabel}</strong>
+                <span className="table-note">This image is previewed here and bundled into the exported package.</span>
+              </div>
+              <div className="inline-actions">
+                <button className="secondary-action" onClick={() => void onPickIcon()}>
+                  <ImageIcon size={16} />
+                  {iconPreviewPath ? 'Replace Icon' : 'Add Icon'}
+                </button>
+                {iconPreviewPath ? (
+                  <button className="danger-action" onClick={onClearIcon}>
+                    <TrashIcon size={16} />
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+            </aside>
           </div>
         </div>
-        <div
-          className="panel dropzone is-hero"
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => {
-            event.preventDefault();
-            const paths = collectDroppedPaths(event);
-            if (paths.length > 0) {
-              onDropFiles(paths);
-            }
-          }}
-        >
-          <div className="dropzone-copy">
-            <span className="eyebrow">Step 2</span>
-            <h3>Add Files</h3>
-            <p>Drop files or folders to begin.</p>
-            <button className="secondary-action" onClick={() => void onPickFiles()}>
-              Add Files or Folders
-            </button>
+        <div className="panel preview-panel">
+          <div className="panel-header">
+            <div>
+              <h3>Install Preview</h3>
+              <div className="panel-subtitle">What users will see after install.</div>
+            </div>
+            <span className="mini-pill">Step 2</span>
           </div>
-          <div className="dropzone-graphic">
-            <div className="dropzone-tile" />
-            <div className="dropzone-tile is-accent" />
+          <div className="install-preview-card">
+            <div className="install-preview-media">
+              <div className="install-preview-art">
+                {iconPreviewUrl ? <img src={iconPreviewUrl} alt="" /> : <span>{getPreviewInitial()}</span>}
+              </div>
+            </div>
+            <div className="install-preview-copy">
+              <span className="eyebrow">{previewId}</span>
+              <h3>
+                {previewTitle} <small>{manifestDraft.version || '0.0.0'}</small>
+              </h3>
+              <p>{previewDescription}</p>
+              <div className="status-row">
+                <span className="mini-pill">{previewCategory}</span>
+                <span className="mini-pill">{previewAuthor}</span>
+                <span className="mini-pill">{files.length} assets</span>
+              </div>
+              <div className="preview-stats">
+                <div className="preview-stat">
+                  <span>Min Resolve</span>
+                  <strong>{manifestDraft.minResolveVersion || '18.0'}</strong>
+                </div>
+                <div className="preview-stat">
+                  <span>Package id</span>
+                  <strong>{previewId}</strong>
+                </div>
+                <div className="preview-stat">
+                  <span>Install folders</span>
+                  <strong>{previewNamespace}</strong>
+                </div>
+              </div>
+              <div className="preview-file-stack">
+                {files.length === 0 ? (
+                  <div className="preview-empty">
+                    <PackageIcon size={16} />
+                    <span>No files added yet. Use the button above to load package contents.</span>
+                  </div>
+                ) : (
+                  files.slice(0, 3).map((file) => (
+                    <div key={file.assetId} className="preview-file-pill">
+                      <strong>{file.fileName}</strong>
+                      <span>{describeInstallRoot(file)}</span>
+                    </div>
+                  ))
+                )}
+                {files.length > 3 ? <span className="table-note">+{files.length - 3} more assets ready to install.</span> : null}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -108,23 +234,50 @@ export function MakePackagePage({
         <div className="panel-header">
           <div>
             <h3>Asset Mapping</h3>
-            <div className="panel-subtitle">Edit type and target.</div>
+            <div className="panel-subtitle">Add files, assign type, and tag emoji variants when needed.</div>
           </div>
-          <span className="mini-pill">Step 3</span>
+          <div className="inline-actions">
+            <button className="secondary-action" onClick={() => void onPickFiles()}>
+              <FolderIcon size={16} />
+              Add Files or Folders
+            </button>
+            <span className="mini-pill">Step 3</span>
+          </div>
         </div>
         {files.length === 0 ? (
-          <div className="empty-state compact-empty">
+          <div
+            className="empty-state compact-empty asset-dropzone"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const paths = collectDroppedPaths(event);
+              if (paths.length > 0) {
+                onDropFiles(paths);
+              }
+            }}
+          >
             <h2>No files added.</h2>
-            <p>Add files first, then map targets here.</p>
+            <p>Add files or folders here, then review how each asset will be categorized automatically.</p>
           </div>
         ) : (
-          <div className="table-shell">
+          <div
+            className="table-shell asset-map-shell"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const paths = collectDroppedPaths(event);
+              if (paths.length > 0) {
+                onDropFiles(paths);
+              }
+            }}
+          >
             <table>
               <thead>
                 <tr>
                   <th>Source</th>
                   <th>Type</th>
-                  <th>Target path</th>
+                  <th>Variant</th>
+                  <th>Install root</th>
                 </tr>
               </thead>
               <tbody>
@@ -153,7 +306,14 @@ export function MakePackagePage({
                       </select>
                     </td>
                     <td>
-                      <input value={file.targetPath} onChange={(event) => onFileChange(index, { targetPath: event.target.value })} />
+                      <select value={file.variant} onChange={(event) => onFileChange(index, { variant: event.target.value as ClassifiedFile['variant'] })}>
+                        <option value="standard">standard</option>
+                        <option value="emoji">emoji</option>
+                      </select>
+                    </td>
+                    <td>
+                      <strong>{describeInstallRoot(file)}</strong>
+                      <span className="table-note">Final folder adds `{previewNamespace}` automatically during install.</span>
                     </td>
                   </tr>
                 ))}

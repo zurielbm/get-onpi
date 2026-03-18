@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
-import type { AppDirectories, InstallScope, InstalledFileRecord, InstalledPackageRecord } from '@shared/types';
+import type { AppDirectories, InstallScope, InstalledFileRecord, InstalledPackageRecord, PackageVariant } from '@shared/types';
 import { createInstallPreview } from './installPreview';
 import { upsertInstalledPackage } from '@core/registry/installedRegistry';
 import { logError, logInstall } from '@core/logging/logger';
@@ -10,9 +10,10 @@ import { logError, logInstall } from '@core/logging/logger';
 export async function installPackageFromArchive(
   archivePath: string,
   scope: InstallScope,
+  variant: PackageVariant,
   appDirectories: AppDirectories
 ): Promise<InstalledPackageRecord> {
-  const preview = await createInstallPreview(archivePath, scope);
+  const preview = await createInstallPreview(archivePath, scope, variant);
   const zip = new AdmZip(archivePath);
   const installId = crypto.randomUUID();
   const installedFiles: InstalledFileRecord[] = [];
@@ -52,6 +53,7 @@ export async function installPackageFromArchive(
     }
 
     const manifestHash = crypto.createHash('sha256').update(JSON.stringify(preview.manifest)).digest('hex');
+    const ownedDirectories = Array.from(new Set(installedFiles.map((file) => path.dirname(file.targetPath))));
     const record: InstalledPackageRecord = {
       installId,
       packageId: preview.manifest.id,
@@ -60,9 +62,11 @@ export async function installPackageFromArchive(
       author: preview.manifest.author,
       installedAt: new Date().toISOString(),
       installScope: scope,
+      variant,
       manifestHash,
       sourcePackagePath: archivePath,
-      installedFiles
+      installedFiles,
+      ownedDirectories
     };
 
     await upsertInstalledPackage(appDirectories.registryFile, record);

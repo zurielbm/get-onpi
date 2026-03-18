@@ -91,6 +91,16 @@ export function FolderIcon(props: IconProps) {
   );
 }
 
+export function ImageIcon(props: IconProps) {
+  return (
+    <SvgIcon {...props}>
+      <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+      <circle cx="9" cy="10" r="1.5" />
+      <path d="m7 17 4.5-4.5 3.2 3.2 2.3-2.3 2 3.6" />
+    </SvgIcon>
+  );
+}
+
 export function TrashIcon(props: IconProps) {
   return (
     <SvgIcon {...props}>

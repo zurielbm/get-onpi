@@ -21,10 +21,11 @@ function validateAssets(assets: ClassifiedFile[]): ValidationIssue[] {
       issues.push({ severity: 'error', message: `Duplicate asset id: ${asset.assetId}`, field: asset.assetId });
     }
     assetIds.add(asset.assetId);
-    if (targets.has(asset.targetPath)) {
-      issues.push({ severity: 'error', message: `Duplicate target path: ${asset.targetPath}`, field: asset.targetPath });
+    const targetKey = `${asset.variant}:${asset.targetPath}`;
+    if (targets.has(targetKey)) {
+      issues.push({ severity: 'error', message: `Duplicate target path for ${asset.variant}: ${asset.targetPath}`, field: asset.targetPath });
     }
-    targets.add(asset.targetPath);
+    targets.add(targetKey);
     if (!fs.existsSync(asset.absolutePath)) {
       issues.push({ severity: 'error', message: `Missing source file: ${asset.absolutePath}`, field: asset.absolutePath });
     }
@@ -53,11 +54,26 @@ export function validatePackageInput(input: PackageBuilderInput): ValidationIssu
   if (!input.manifest.description) {
     issues.push({ severity: 'error', message: 'Description is required', field: 'description' });
   }
+  if (!input.manifest.installNamespace?.brand) {
+    issues.push({ severity: 'error', message: 'Install brand folder is required', field: 'installNamespace.brand' });
+  }
+  if (!input.manifest.installNamespace?.product) {
+    issues.push({ severity: 'error', message: 'Install product folder is required', field: 'installNamespace.product' });
+  }
   if (!input.manifest.readme) {
     issues.push({ severity: 'warning', message: 'No readme included', field: 'readme' });
   }
   if (!input.manifest.icon) {
     issues.push({ severity: 'warning', message: 'No icon included', field: 'icon' });
+  } else {
+    if (hasTraversal(input.manifest.icon)) {
+      issues.push({ severity: 'error', message: `Invalid icon path: ${input.manifest.icon}`, field: 'icon' });
+    }
+    if (!input.iconSourcePath) {
+      issues.push({ severity: 'error', message: 'Icon source file is missing', field: 'icon' });
+    } else if (!fs.existsSync(input.iconSourcePath)) {
+      issues.push({ severity: 'error', message: `Selected icon file is missing: ${input.iconSourcePath}`, field: 'icon' });
+    }
   }
   return issues;
 }

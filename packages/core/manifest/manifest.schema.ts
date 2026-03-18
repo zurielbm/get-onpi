@@ -7,12 +7,18 @@ export const assetSchema = z.object({
   id: z.string().min(1),
   type: z.enum(['fusion-template', 'fusion-macro', 'fuse', 'script', 'lut', 'dctl']),
   source: z.string().min(1),
-  target: z.string().min(1)
+  target: z.string().min(1),
+  variant: z.enum(['standard', 'emoji'])
+});
+
+const installNamespaceSchema = z.object({
+  brand: z.string().min(1),
+  product: z.string().min(1)
 });
 
 export const manifestSchema = z.object({
   formatVersion: z.string().regex(semverLike),
-  id: z.string().min(3),
+  id: z.string().min(1),
   name: z.string().min(1),
   version: z.string().regex(semverLike),
   author: z.string().min(1),
@@ -31,6 +37,7 @@ export const manifestSchema = z.object({
   registryPackageId: z.string().min(1).optional(),
   channel: z.string().min(1).optional(),
   publishedVersionId: z.string().min(1).optional(),
+  installNamespace: installNamespaceSchema.optional(),
   platforms: z.array(z.enum(['macos', 'windows'])).min(1),
   assets: z.array(assetSchema).min(1)
 });

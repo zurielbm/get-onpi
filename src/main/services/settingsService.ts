@@ -5,9 +5,19 @@ import { DEFAULT_SETTINGS } from '@shared/constants';
 export async function readSettings(settingsFile: string): Promise<AppSettings> {
   try {
     const content = await fs.readFile(settingsFile, 'utf8');
-    return { ...DEFAULT_SETTINGS, ...(JSON.parse(content) as AppSettings) };
+    const parsed = JSON.parse(content) as AppSettings;
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      emojiDetectionContains: [...(parsed.emojiDetectionContains ?? DEFAULT_SETTINGS.emojiDetectionContains)],
+      emojiDetectionSuffixes: [...(parsed.emojiDetectionSuffixes ?? DEFAULT_SETTINGS.emojiDetectionSuffixes)]
+    };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return {
+      ...DEFAULT_SETTINGS,
+      emojiDetectionContains: [...DEFAULT_SETTINGS.emojiDetectionContains],
+      emojiDetectionSuffixes: [...DEFAULT_SETTINGS.emojiDetectionSuffixes]
+    };
   }
 }
 
